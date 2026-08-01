@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PhysViz — Instant Physics & Chemistry Visualizations</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #0f1115;
+    color: #e6e6e6;
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+  }
+  header {
+    padding: 30px 20px 10px;
+    text-align: center;
+  }
+  header h1 {
+    margin: 0;
+    font-size: 2em;
+    background: linear-gradient(90deg, #3498db, #2ecc71);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  header p { color: #9da5b1; margin-top: 8px; }
+
+  .main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 20px;
+  }
+
+  .input-box {
+    background: #1a1d24;
+    border: 1px solid #2a2d35;
+    border-radius: 12px;
+    padding: 20px;
+  }
+  textarea {
+    width: 100%;
+    min-height: 100px;
+    background: #12141a;
+    color: #e6e6e6;
+    border: 1px solid #2a2d35;
+    border-radius: 8px;
+    padding: 12px;
+    font-size: 1em;
+    resize: vertical;
+    font-family: inherit;
+  }
+  .row { display: flex; gap: 10px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+  select, button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid #2a2d35;
+    background: #12141a;
+    color: #e6e6e6;
+    font-size: 0.95em;
+    cursor: pointer;
+  }
+  button.primary {
+    background: linear-gradient(90deg, #3498db, #2980b9);
+    border: none;
+    color: white;
+    font-weight: bold;
+    margin-left: auto;
+  }
+  button.primary:hover { filter: brightness(1.1); }
+  button.primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .examples { margin-top: 10px; font-size: 0.85em; color: #7d8590; }
+  .examples span {
+    display: inline-block;
+    margin: 4px 6px 4px 0;
+    padding: 4px 10px;
+    background: #202430;
+    border-radius: 14px;
+    cursor: pointer;
+  }
+  .examples span:hover { background: #2a2f3d; }
+
+  #status { margin-top: 14px; font-size: 0.9em; color: #f39c12; min-height: 20px; }
+
+  #result-wrap {
+    margin-top: 24px;
+    border: 1px solid #2a2d35;
+    border-radius: 12px;
+    overflow: hidden;
+    display: none;
+    background: white;
+  }
+  #result-frame {
+    width: 100%;
+    height: 700px;
+    border: none;
+    display: block;
+  }
+
+  footer {
+    text-align: center;
+    padding: 30px;
+    color: #555;
+    font-size: 0.8em;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>⚛ PhysViz</h1>
+  <p>Type a high-school physics or chemistry question — get an instant interactive visualization.</p>
+</header>
+
+<div class="main">
+  <div class="input-box">
+    <textarea id="question" placeholder="e.g. Explain and visualize projectile motion for a ball launched at 25 m/s at 40 degrees..."></textarea>
+
+    <div class="examples">
+      Try:
+      <span onclick="fillExample(this)">Projectile motion at 25 m/s, 40°</span>
+      <span onclick="fillExample(this)">How a screw gauge (micrometer) works</span>
+      <span onclick="fillExample(this)">Simple pendulum with adjustable length</span>
+      <span onclick="fillExample(this)">Titration curve for a weak acid + strong base</span>
+    </div>
+
+    <div class="row">
+      <select id="subject">
+        <option value="physics">Physics</option>
+        <option value="chemistry">Chemistry</option>
+      </select>
+      <button class="primary" id="generateBtn" onclick="generate()">Generate Visualization</button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <div id="result-wrap">
+    <iframe id="result-frame" sandbox="allow-scripts"></iframe>
+  </div>
+</div>
+
+<footer>Built with Gemini · For educational use</footer>
+
+<script>
+function fillExample(el) {
+  document.getElementById('question').value = el.textContent;
+}
+
+async function generate() {
+  const question = document.getElementById('question').value.trim();
+  const subject = document.getElementById('subject').value;
+  const status = document.getElementById('status');
+  const btn = document.getElementById('generateBtn');
+  const resultWrap = document.getElementById('result-wrap');
+  const frame = document.getElementById('result-frame');
+
+  if (!question) {
+    status.textContent = 'Please type a question first.';
+    return;
+  }
+
+  btn.disabled = true;
+  status.textContent = 'Generating visualization… this can take 10–30 seconds.';
+  resultWrap.style.display = 'none';
+
+  try {
+    const res = await fetch('/api/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question, subject })
+    });
+
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(errText || 'Request failed');
+    }
+
+    const data = await res.json();
+    let html = data.html;
+
+    // Safety: strip markdown code fences if the model included them
+    html = html.replace(/^```html\s*/i, '').replace(/```$/,'').trim();
+
+    frame.srcdoc = html;
+    resultWrap.style.display = 'block';
+    status.textContent = '';
+  } catch (err) {
+    status.textContent = 'Something went wrong: ' + err.message;
+  } finally {
+    btn.disabled = false;
+  }
+}
+</script>
+
+</body>
+</html>
