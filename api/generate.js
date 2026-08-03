@@ -17,10 +17,13 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'Server not configured: missing GEMINI_API_KEY' });
   }
 
-  // Confirmed free-tier model as of Aug 2026 (verified in AI Studio — no billing required).
-  // Re-check in AI Studio periodically: free-tier eligibility rotates forward
-  // as new model generations ship (was 2.5 series earlier in 2026, now 3.5 series).
-  const MODEL = 'gemini-3.5-flash-lite';
+  // Primary model: 3.6 Flash — better reasoning depth for harder problems.
+  // Listed as Free Tier Standard usage per Google's pricing docs, though it may
+  // have tighter rate limits than Flash-Lite.
+  // Falls back to 3.5 Flash-Lite automatically if 3.6 fails (rate limit, quota, etc.)
+  // — keeps the site working even if 3.6's free-tier behaves inconsistently.
+  const PRIMARY_MODEL = 'gemini-3.6-flash';
+  const FALLBACK_MODEL = 'gemini-3.5-flash-lite';
 
   const systemPrompt = `You are a ${subject} visualization generator for high school students. Students will often type SHORT, vague queries (e.g. "screw gauge", "projectile motion", "explain SHM") rather than detailed specifications. Your job is to infer a complete, pedagogically useful visualization from minimal input.
 
@@ -44,9 +47,9 @@ Rules:
 - Code should be clean and commented.
 - Do not include any text or explanation outside the HTML file itself — output raw code only, no markdown fences.`;
 
-  try {
+  async function callModel(modelId) {
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/${modelId}:generateContent?key=${API_KEY}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -60,18 +63,33 @@ Rules:
 
     if (!response.ok) {
       const errBody = await response.text();
-      return res.status(502).json({ error: 'Gemini API error: ' + errBody });
+      const err = new Error(errBody);
+      err.status = response.status;
+      throw err;
     }
 
     const data = await response.json();
     const html = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-
     if (!html) {
-      return res.status(502).json({ error: 'No content returned from model' });
+      throw new Error('No content returned from model');
+    }
+    return html;
+  }
+
+  try {
+    let html;
+    let usedModel = PRIMARY_MODEL;
+    try {
+      html = await callModel(PRIMARY_MODEL);
+    } catch (primaryErr) {
+      // Fall back on rate limit (429), quota/billing issues (403), or server errors (5xx)
+      console.warn(`Primary model ${PRIMARY_MODEL} failed, falling back to ${FALLBACK_MODEL}:`, primaryErr.message);
+      usedModel = FALLBACK_MODEL;
+      html = await callModel(FALLBACK_MODEL);
     }
 
-    return res.status(200).json({ html });
+    return res.status(200).json({ html, model: usedModel });
   } catch (err) {
-    return res.status(500).json({ error: err.message });
+    return res.status(502).json({ error: 'Both models failed: ' + err.message });
   }
 }
